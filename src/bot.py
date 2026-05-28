@@ -319,9 +319,9 @@ def scrape(url: str, article_sel: str, title_sel: str,
 #  #daily-news — Scraped daily news blogs (no RSS)
 # ════════════════════════════════════════════════════════════════════════════
 def fetch_daily_news_scraped() -> list:
-    items = []
     current_year = datetime.now().year
-items += scrape(
+    items = []
+    items += scrape(
         url         = "https://www.helpnetsecurity.com/{current_year}/",
         article_sel = "div.col",
         title_sel   = "h5.reset-heading, h5.card-title",
@@ -332,16 +332,16 @@ items += scrape(
         color       = "news",
     )
 
-items += scrape(
-    url         = "https://cybersecuritynews.com/",   
-    article_sel = "div.td-module-container",          
-    title_sel   = "h3.entry-title, h3.td-module-title",  
-    link_sel    = "h3 a",                             
-    base_url    = "https://cybersecuritynews.com",    
-    label       = "Cyber Security News",
-    webhook_key = "daily_news",
-    color       = "news",
-)
+    items += scrape(
+        url         = "https://cybersecuritynews.com/",   
+        article_sel = "div.td-module-container",          
+        title_sel   = "h3.entry-title, h3.td-module-title",  
+        link_sel    = "h3 a",                             
+        base_url    = "https://cybersecuritynews.com",    
+        label       = "Cyber Security News",
+        webhook_key = "daily_news",
+        color       = "news",
+    )
     return items
 
 # https://www.helpnetsecurity.com/2026/
