@@ -214,6 +214,7 @@ DAILY_NEWS_FEEDS = [
     ("https://www.securityweek.com/feed/",              "SecurityWeek"),
     ("https://threatpost.com/feed/",                    "Threatpost"),
     ("https://www.cisecurity.org/feed/advisories",      "CIS Advisories"),
+    ("https://cybersecuritynews.com/feed/",             "Cyber Security News"),
 ]
 
 # ════════════════════════════════════════════════════════════════════════════
