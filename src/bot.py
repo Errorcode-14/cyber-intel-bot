@@ -78,10 +78,15 @@ def send_embed(webhook_key: str, title: str, description: str,
         log.warning("Webhook not configured: %s — skipping", webhook_key)
         return False
 
+    content_parts = []
+    if mention:
+        content_parts.append(mention)
+    content_parts.append(url)
+
     payload = {
         "username":   "CyberIntel Bot 🛡️",
         "avatar_url": "https://cdn-icons-png.flaticon.com/512/2716/2716652.png",
-        "content":    mention or "",
+        "content":    "\n".join(content_parts),
         "embeds": [{
             "title":       title[:256],
             "description": description[:2000],
