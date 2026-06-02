@@ -2,8 +2,6 @@
 """
 CyberIntel Discord Bot
 ======================
-CyberIntel Discord Bot
-======================
 Your Discord channels:
   @threat-intel   → APT reports, breach news, threat intel (Krebs, Mandiant, Unit42, etc.)
   #cve-updates    → All CVEs from NVD + CISA KEV (CVSS >= 7.0)
@@ -14,7 +12,7 @@ Your Discord channels:
 Runs on GitHub Actions — free, no server needed.
 Deduplication via sent_ids.json cached between runs.
 """
-
+ 
 import os
 import json
 import time
@@ -24,7 +22,7 @@ import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
-
+ 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +30,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("cyberintel")
-
+ 
 # ── Webhooks → YOUR exact channel names ──────────────────────────────────────
 # Set each of these as a GitHub Secret (Settings → Secrets → Actions)
 WEBHOOKS = {
@@ -42,7 +40,7 @@ WEBHOOKS = {
     "daily_news":      os.getenv("DISCORD_DAILY_NEWS"),      # #daily-news
     "tools_resources": os.getenv("DISCORD_TOOLS_RESOURCES"), # #tools-resources
 }
-
+ 
 # ── Discord embed colors ──────────────────────────────────────────────────────
 COLORS = {
     "critical": 0xFF0000,   # red       — CVSS >= 9.0
@@ -52,25 +50,25 @@ COLORS = {
     "news":     0x5865F2,   # blurple   — daily news
     "intel":    0xE74C3C,   # crimson   — threat intel / APT
 }
-
+ 
 # ── Dedup cache ───────────────────────────────────────────────────────────────
 CACHE_FILE = "sent_ids.json"
 MAX_CACHE  = 2000
-
+ 
 def load_cache() -> set:
     try:
         with open(CACHE_FILE) as f:
             return set(json.load(f))
     except Exception:
         return set()
-
+ 
 def save_cache(cache: set):
     with open(CACHE_FILE, "w") as f:
         json.dump(list(cache)[-MAX_CACHE:], f)
-
+ 
 def make_id(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()
-
+ 
 # ── Discord sender ────────────────────────────────────────────────────────────
 def send_embed(webhook_key: str, title: str, description: str,
                url: str, color_key: str = "news", mention: str = None) -> bool:
@@ -79,16 +77,11 @@ def send_embed(webhook_key: str, title: str, description: str,
     if not webhook_url:
         log.warning("Webhook not configured: %s — skipping", webhook_key)
         return False
-
-    content_parts = []
-    if mention:
-        content_parts.append(mention)
-    content_parts.append(url)
-
+ 
     payload = {
         "username":   "CyberIntel Bot 🛡️",
         "avatar_url": "https://cdn-icons-png.flaticon.com/512/2716/2716652.png",
-        "content":    "\n".join(content_parts),
+        "content":    mention or "",
         "embeds": [{
             "title":       title[:256],
             "description": description[:2000],
@@ -98,7 +91,7 @@ def send_embed(webhook_key: str, title: str, description: str,
             "timestamp":   datetime.now(timezone.utc).isoformat(),
         }],
     }
-
+ 
     for attempt in range(3):
         try:
             resp = requests.post(webhook_url, json=payload, timeout=10)
@@ -115,8 +108,8 @@ def send_embed(webhook_key: str, title: str, description: str,
             log.error("Request error (attempt %d): %s", attempt + 1, e)
             time.sleep(3)
     return False
-
-
+ 
+ 
 # ════════════════════════════════════════════════════════════════════════════
 #  #cve-updates — NVD / NIST CVE API
 #  All CVEs CVSS >= 7.0 from the last 24 hours
@@ -205,6 +198,71 @@ def fetch_nvd_cves(min_cvss: float = 7.0, hours: int = 24) -> list:
  
  
 # ════════════════════════════════════════════════════════════════════════════
+#  #cve-updates — CVE FALLBACK SOURCES (when NVD is down)
+#  These kick in automatically if NVD returns nothing
+# ════════════════════════════════════════════════════════════════════════════
+def fetch_cve_mitre_rss() -> list:
+    """MITRE CVE RSS feed — reliable alternative to NVD API."""
+    log.info("CVE Fallback: fetching MITRE CVE RSS...")
+    try:
+        feed  = feedparser.parse("https://cve.mitre.org/data/downloads/allitems-cvrf-year-2026.xml")
+        # MITRE XML is large — use their news feed instead
+        feed  = feedparser.parse("https://www.cve.org/Media/News/item-feed.rss")
+        items = []
+        for entry in feed.entries[:10]:
+            title   = entry.get("title", "")
+            link    = entry.get("link", "")
+            summary = entry.get("summary", "")
+            if summary:
+                summary = BeautifulSoup(summary, "html.parser").get_text()[:300]
+            items.append({
+                "id":      make_id(link or title),
+                "title":   f"🟠 [CVE.ORG] {title}",
+                "desc":    summary or "New CVE published. Click for details.",
+                "url":     link,
+                "webhook": "cve_updates",
+                "color":   "high",
+                "mention": None,
+            })
+        log.info("MITRE CVE RSS: %d items", len(items))
+        return items
+    except Exception as e:
+        log.error("MITRE CVE RSS failed: %s", e)
+        return []
+ 
+def fetch_vulndb_rss() -> list:
+    """VulnDB / Vulnerability Lab RSS — another NVD fallback."""
+    log.info("CVE Fallback: fetching Vulnerability Lab RSS...")
+    sources = [
+        ("https://www.vulnerability-lab.com/rss/rss.php",    "Vulnerability Lab"),
+        ("https://seclists.org/rss/fulldisclosure.rss",       "Full Disclosure"),
+        ("https://packetstormsecurity.com/feeds/vulnerabilities/","Packet Storm CVEs"),
+    ]
+    items = []
+    for feed_url, label in sources:
+        try:
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:5]:
+                title   = entry.get("title", "")
+                link    = entry.get("link", "")
+                summary = entry.get("summary", "")
+                if summary:
+                    summary = BeautifulSoup(summary, "html.parser").get_text()[:300]
+                items.append({
+                    "id":      make_id(link or title),
+                    "title":   f"🟠 [{label}] {title}",
+                    "desc":    summary or "Click to read full details.",
+                    "url":     link,
+                    "webhook": "cve_updates",
+                    "color":   "high",
+                    "mention": None,
+                })
+            log.info("  %s: %d items", label, len(items))
+        except Exception as e:
+            log.error("Fallback RSS %s failed: %s", label, e)
+    return items
+ 
+# ════════════════════════════════════════════════════════════════════════════
 #  #cve-updates — CISA Known Exploited Vulnerabilities
 #  These are CVEs actively being exploited RIGHT NOW
 # ════════════════════════════════════════════════════════════════════════════
@@ -242,7 +300,6 @@ def fetch_cisa_kev(hours: int = 24) -> list:
     except Exception as e:
         log.error("CISA KEV failed: %s", e)
         return []
-
 # ════════════════════════════════════════════════════════════════════════════
 #  #daily-news — RSS feeds (general security news)
 # ════════════════════════════════════════════════════════════════════════════
@@ -602,33 +659,39 @@ def run():
 
     all_items = []
 
-    # #cve-updates
-    all_items += fetch_nvd_cves(min_cvss=7.0, hours=24)
+# #cve-updates — NVD primary, fallbacks if NVD is down
+    nvd_items = fetch_nvd_cves(min_cvss=7.0, hours=24)
+    if nvd_items:
+        all_items += nvd_items
+        log.info("CVE source: NVD API (%d items)", len(nvd_items))
+    else:
+        log.warning("NVD returned nothing — switching to fallback CVE sources")
+        all_items += fetch_cve_mitre_rss()
+        all_items += fetch_vulndb_rss()
     all_items += fetch_cisa_kev(hours=24)
-
+ 
     # @threat-intel
     all_items += fetch_rss(THREAT_INTEL_FEEDS, "threat_intel", "intel", hours=24)
     all_items += fetch_threat_intel_scraped()
-
+ 
     # #bug-bounty
     all_items += fetch_rss(BUG_BOUNTY_FEEDS, "bug_bounty", "bounty", hours=24)
     all_items += fetch_bug_bounty_scraped()
-
+ 
     # #daily-news
     all_items += fetch_rss(DAILY_NEWS_FEEDS, "daily_news", "news", hours=24)
-    all_items += fetch_daily_news_scraped()
-
+ 
     # #tools-resources
     all_items += fetch_github_tools(hours=48)
     all_items += fetch_arxiv_papers(hours=24)
-
+ 
     log.info("Total collected: %d items", len(all_items))
-
+ 
     for item in all_items:
         if item["id"] in cache:
             skipped += 1
             continue
-
+ 
         ok = send_embed(
             webhook_key = item["webhook"],
             title       = item["title"],
@@ -644,12 +707,12 @@ def run():
             time.sleep(2)   # Discord rate limit safety
         else:
             log.warning("  ✗ Failed: %s", item["title"][:60])
-
+ 
     save_cache(cache)
     log.info("=" * 60)
     log.info("Done — Sent: %d  |  Already seen: %d", sent, skipped)
     log.info("=" * 60)
-
-
+ 
+ 
 if __name__ == "__main__":
     run()
