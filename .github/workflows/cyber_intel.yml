@@ -48,6 +48,7 @@ jobs:
           DISCORD_DAILY_NEWS:      ${{ secrets.DISCORD_DAILY_NEWS }}
           DISCORD_TOOLS_RESOURCES: ${{ secrets.DISCORD_TOOLS_RESOURCES }}
           GITHUB_TOKEN:            ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY:             ${{ secrets.NVD_API_KEY }}
         run: python src/bot.py
 
       - name: Backup cache artifact
