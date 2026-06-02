@@ -2,13 +2,15 @@
 """
 CyberIntel Discord Bot
 ======================
+CyberIntel Discord Bot
+======================
 Your Discord channels:
   @threat-intel   → APT reports, breach news, threat intel (Krebs, Mandiant, Unit42, etc.)
   #cve-updates    → All CVEs from NVD + CISA KEV (CVSS >= 7.0)
   #bug-bounty     → HackerOne disclosures, Exploit-DB, bug bounty writeups
   #daily-news     → Daily digest: BleepingComputer, HackerNews, Dark Reading, SANS ISC
   #tools-resources→ GitHub security tools, ArXiv research, project zero writeups
-
+ 
 Runs on GitHub Actions — free, no server needed.
 Deduplication via sent_ids.json cached between runs.
 """
@@ -118,51 +120,90 @@ def send_embed(webhook_key: str, title: str, description: str,
 # ════════════════════════════════════════════════════════════════════════════
 #  #cve-updates — NVD / NIST CVE API
 #  All CVEs CVSS >= 7.0 from the last 24 hours
+#
+#  NVD API rate limits:
+#    No API key → 5 requests per 30s, frequent empty responses
+#    Free API key → 50 requests per 30s, much more reliable
+#  Get a free key at: https://nvd.nist.gov/developers/request-an-api-key
+#  Add it as GitHub Secret: NVD_API_KEY
 # ════════════════════════════════════════════════════════════════════════════
 def fetch_nvd_cves(min_cvss: float = 7.0, hours: int = 24) -> list:
     log.info("Fetching NVD CVEs (CVSS >= %.1f)...", min_cvss)
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url   = f"https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate={since}&resultsPerPage=50"
-    try:
-        data  = requests.get(url, timeout=20).json()
-        items = []
-        for vuln in data.get("vulnerabilities", []):
-            cve    = vuln["cve"]
-            cve_id = cve["id"]
-            metrics = cve.get("metrics", {})
-            score   = 0.0
-            for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
-                entries = metrics.get(key, [])
-                if entries:
-                    score = entries[0].get("cvssData", {}).get("baseScore", 0.0)
-                    break
-            if score < min_cvss:
+ 
+    # Use API key if available — much more reliable
+    nvd_api_key = os.getenv("NVD_API_KEY", "")
+    headers = {}
+    if nvd_api_key:
+        headers["apiKey"] = nvd_api_key
+        log.info("NVD: using API key (higher rate limit)")
+    else:
+        log.warning("NVD: no API key — get a free one at https://nvd.nist.gov/developers/request-an-api-key")
+ 
+    # Retry up to 3 times — NVD often returns empty without a key
+    for attempt in range(3):
+        try:
+            if attempt > 0:
+                wait = 6 * attempt   # 6s then 12s
+                log.info("NVD retry %d/3 — waiting %ds...", attempt + 1, wait)
+                time.sleep(wait)
+ 
+            resp = requests.get(url, headers=headers, timeout=30)
+ 
+            if resp.status_code == 403:
+                log.warning("NVD rate limited (403) — waiting 30s")
+                time.sleep(30)
                 continue
-            desc = next(
-                (d["value"] for d in cve.get("descriptions", []) if d["lang"] == "en"),
-                "No description available."
-            )
-            is_critical = score >= 9.0
-            items.append({
-                "id":      cve_id,
-                "title":   f"{'🔴 CRITICAL' if is_critical else '🟠 HIGH'} | {cve_id} — CVSS {score}",
-                "desc":    (
-                    f"{desc[:350]}{'...' if len(desc) > 350 else ''}\n\n"
-                    f"**CVSS Score:** {score}/10  |  "
-                    f"**Severity:** {'Critical' if is_critical else 'High'}"
-                ),
-                "url":     f"https://nvd.nist.gov/vuln/detail/{cve_id}",
-                "webhook": "cve_updates",
-                "color":   "critical" if is_critical else "high",
-                "mention": "@everyone 🚨 Critical CVE — patch immediately!" if is_critical else None,
-            })
-        log.info("NVD: %d CVEs found", len(items))
-        return items
-    except Exception as e:
-        log.error("NVD failed: %s", e)
-        return []
-
-
+ 
+            if not resp.text or not resp.text.strip():
+                log.warning("NVD empty response (attempt %d)", attempt + 1)
+                continue
+ 
+            data  = resp.json()
+            items = []
+            for vuln in data.get("vulnerabilities", []):
+                cve    = vuln["cve"]
+                cve_id = cve["id"]
+                metrics = cve.get("metrics", {})
+                score   = 0.0
+                for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+                    entries = metrics.get(key, [])
+                    if entries:
+                        score = entries[0].get("cvssData", {}).get("baseScore", 0.0)
+                        break
+                if score < min_cvss:
+                    continue
+                desc = next(
+                    (d["value"] for d in cve.get("descriptions", []) if d["lang"] == "en"),
+                    "No description available."
+                )
+                is_critical = score >= 9.0
+                items.append({
+                    "id":      cve_id,
+                    "title":   f"{'🔴 CRITICAL' if is_critical else '🟠 HIGH'} | {cve_id} — CVSS {score}",
+                    "desc":    (
+                        f"{desc[:350]}{'...' if len(desc) > 350 else ''}\n\n"
+                        f"**CVSS Score:** {score}/10  |  "
+                        f"**Severity:** {'Critical' if is_critical else 'High'}"
+                    ),
+                    "url":     f"https://nvd.nist.gov/vuln/detail/{cve_id}",
+                    "webhook": "cve_updates",
+                    "color":   "critical" if is_critical else "high",
+                    "mention": "@everyone 🚨 Critical CVE — patch immediately!" if is_critical else None,
+                })
+            log.info("NVD: %d CVEs found", len(items))
+            return items
+ 
+        except ValueError as e:
+            log.warning("NVD bad JSON (attempt %d): %s", attempt + 1, e)
+        except requests.RequestException as e:
+            log.warning("NVD request error (attempt %d): %s", attempt + 1, e)
+ 
+    log.error("NVD failed after 3 attempts — skipping this run")
+    return []
+ 
+ 
 # ════════════════════════════════════════════════════════════════════════════
 #  #cve-updates — CISA Known Exploited Vulnerabilities
 #  These are CVEs actively being exploited RIGHT NOW
@@ -201,7 +242,6 @@ def fetch_cisa_kev(hours: int = 24) -> list:
     except Exception as e:
         log.error("CISA KEV failed: %s", e)
         return []
-
 
 # ════════════════════════════════════════════════════════════════════════════
 #  #daily-news — RSS feeds (general security news)
@@ -305,6 +345,8 @@ def scrape(url: str, article_sel: str, title_sel: str,
             href  = l_el.get("href", "") if l_el else ""
             if href and not href.startswith("http"):
                 href = base_url.rstrip("/") + "/" + href.lstrip("/")
+# ── Try to extract a real summary from the article card ──────────
+            # Remove the title/link elements so they don't bleed into the summary
             for el in article.select(title_sel):
                 el.decompose()
  
