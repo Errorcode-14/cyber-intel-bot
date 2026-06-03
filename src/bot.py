@@ -14,6 +14,8 @@ Deduplication via sent_ids.json cached between runs.
 """
  
 import os
+import io
+import zipfile
 import json
 import time
 import hashlib
