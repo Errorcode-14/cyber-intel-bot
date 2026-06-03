@@ -248,7 +248,6 @@ def fetch_cveproject_github() -> list:
         log.info("Downloading: %s (%d bytes)", delta_asset["name"], delta_asset.get("size", 0))
  
         # Step 3 — download and parse the zip
-        import io
         r2 = requests.get(download_url, headers=headers, timeout=60)
         r2.raise_for_status()
  
