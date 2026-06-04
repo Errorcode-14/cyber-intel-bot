@@ -47,6 +47,8 @@ WEBHOOKS = {
 COLORS = {
     "critical": 0xFF0000,   # red       — CVSS >= 9.0
     "high":     0xFF6B35,   # orange    — CVSS 7.0–8.9
+    "medium":   0xFFD700,   # yellow    — CVSS 4.0–6.9
+    "low":      0x3498DB,   # blue      — CVSS 3.0–3.9
     "bounty":   0xF1C40F,   # gold      — bug bounty / exploit
     "tool":     0x2ECC71,   # green     — tools & research
     "news":     0x5865F2,   # blurple   — daily news
@@ -123,7 +125,7 @@ def send_embed(webhook_key: str, title: str, description: str,
 #  Add it as GitHub Secret: NVD_API_KEY
 # ════════════════════════════════════════════════════════════════════════════
 def fetch_nvd_cves(min_cvss: float = 7.0, hours: int = 24) -> list:
-    log.info("Fetching NVD CVEs (CVSS >= %.1f)...", min_cvss)
+    log.info("Fetching NVD CVEs (CVSS >= %.1f, all severities)...", min_cvss)
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url   = f"https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate={since}&resultsPerPage=50"
  
@@ -173,19 +175,29 @@ def fetch_nvd_cves(min_cvss: float = 7.0, hours: int = 24) -> list:
                     (d["value"] for d in cve.get("descriptions", []) if d["lang"] == "en"),
                     "No description available."
                 )
-                is_critical = score >= 9.0
+                # Map CVSS score → severity band
+                if score >= 9.0:
+                    sev_label = "CRITICAL"; sev_emoji = "🔴"; color_key = "critical"
+                    mention   = "@everyone 🚨 Critical CVE — patch immediately!"
+                elif score >= 7.0:
+                    sev_label = "HIGH";     sev_emoji = "🟠"; color_key = "high";     mention = None
+                elif score >= 4.0:
+                    sev_label = "MEDIUM";   sev_emoji = "🟡"; color_key = "medium";   mention = None
+                else:
+                    sev_label = "LOW";      sev_emoji = "🔵"; color_key = "low";      mention = None
+ 
                 items.append({
                     "id":      cve_id,
-                    "title":   f"{'🔴 CRITICAL' if is_critical else '🟠 HIGH'} | {cve_id} — CVSS {score}",
+                    "title":   f"{sev_emoji} {sev_label} | {cve_id} — CVSS {score}",
                     "desc":    (
                         f"{desc[:350]}{'...' if len(desc) > 350 else ''}\n\n"
                         f"**CVSS Score:** {score}/10  |  "
-                        f"**Severity:** {'Critical' if is_critical else 'High'}"
+                        f"**Severity:** {sev_label}"
                     ),
                     "url":     f"https://nvd.nist.gov/vuln/detail/{cve_id}",
                     "webhook": "cve_updates",
-                    "color":   "critical" if is_critical else "high",
-                    "mention": "@everyone 🚨 Critical CVE — patch immediately!" if is_critical else None,
+                    "color":   color_key,
+                    "mention": mention,
                 })
             log.info("NVD: %d CVEs found", len(items))
             return items
@@ -305,11 +317,22 @@ def fetch_cveproject_github() -> list:
                     if score > 0 and score < 7.0:
                         continue
  
-                    is_critical = score >= 9.0
-                    score_str   = f"CVSS {score}" if score > 0 else "Score pending"
+                    score_str = f"CVSS {score}" if score > 0 else "Score pending"
+                    if score >= 9.0:
+                        sev_label = "CRITICAL"; sev_emoji = "🔴"; color_key = "critical"
+                        mention   = "@everyone 🚨 Critical CVE — patch immediately!"
+                    elif score >= 7.0:
+                        sev_label = "HIGH";   sev_emoji = "🟠"; color_key = "high";   mention = None
+                    elif score >= 4.0:
+                        sev_label = "MEDIUM"; sev_emoji = "🟡"; color_key = "medium"; mention = None
+                    elif score > 0:
+                        sev_label = "LOW";    sev_emoji = "🔵"; color_key = "low";    mention = None
+                    else:
+                        sev_label = "PENDING"; sev_emoji = "⚪"; color_key = "news";  mention = None
+ 
                     items.append({
                         "id":      cve_id,
-                        "title":   f"{'🔴 CRITICAL' if is_critical else '🟠'} | {cve_id} — {score_str}",
+                        "title":   f"{sev_emoji} {sev_label} | {cve_id} — {score_str}",
                         "desc":    (
                             f"{desc[:350]}{'...' if len(desc) > 350 else ''}\n\n"
                             f"**Score:** {score_str}  |  "
@@ -317,8 +340,8 @@ def fetch_cveproject_github() -> list:
                         ),
                         "url":     f"https://www.cve.org/CVERecord?id={cve_id}",
                         "webhook": "cve_updates",
-                        "color":   "critical" if is_critical else "high",
-                        "mention": "@everyone 🚨 Critical CVE — patch immediately!" if is_critical else None,
+                        "color":   color_key,
+                        "mention": mention,
                     })
                 except Exception:
                     continue
@@ -335,7 +358,6 @@ def fetch_cve_rss_fallback() -> list:
     """RSS-based CVE fallback — security mailing lists with CVE disclosures."""
     log.info("CVE Fallback: RSS sources...")
     sources = [
-        ("https://seclists.org/rss/fulldisclosure.rss",           "Full Disclosure"),
         ("https://packetstormsecurity.com/feeds/vulnerabilities/", "Packet Storm"),
     ]
     items = []
@@ -411,6 +433,7 @@ DAILY_NEWS_FEEDS = [
     ("https://www.securityweek.com/feed/",              "SecurityWeek"),
     ("https://threatpost.com/feed/",                    "Threatpost"),
     ("https://www.cisecurity.org/feed/advisories",      "CIS Advisories"),
+    ("https://cybersecuritynews.com/feed/",             "Cyber Security News"),
 ]
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -760,7 +783,7 @@ def run():
     all_items = []
  
     # #cve-updates — NVD primary, fallbacks if NVD is down
-    nvd_items = fetch_nvd_cves(min_cvss=7.0, hours=24)
+    nvd_items = fetch_nvd_cves(min_cvss=3.0, hours=24)
     if nvd_items:
         all_items += nvd_items
         log.info("CVE source: NVD API (%d items)", len(nvd_items))
@@ -780,6 +803,7 @@ def run():
  
     # #daily-news
     all_items += fetch_rss(DAILY_NEWS_FEEDS, "daily_news", "news", hours=24)
+    all_items += fetch_daily_news_scraped()
  
     # #tools-resources
     all_items += fetch_github_tools(hours=48)
