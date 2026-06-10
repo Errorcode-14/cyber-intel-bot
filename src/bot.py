@@ -4,7 +4,7 @@ CyberIntel Discord Bot
 ======================
 Your Discord channels:
   @threat-intel   → APT reports, breach news, threat intel (Krebs, Mandiant, Unit42, etc.)
-  #cve-updates    → All CVEs from NVD + CISA KEV (CVSS >= 7.0)
+  #cve-updates    → All CVEs from NVD + CISA KEV (CVSS > 3.0)
   #bug-bounty     → HackerOne disclosures, Exploit-DB, bug bounty writeups
   #daily-news     → Daily digest: BleepingComputer, HackerNews, Dark Reading, SANS ISC
   #tools-resources→ GitHub security tools, ArXiv research, project zero writeups
@@ -116,7 +116,7 @@ def send_embed(webhook_key: str, title: str, description: str,
  
 # ════════════════════════════════════════════════════════════════════════════
 #  #cve-updates — NVD / NIST CVE API
-#  All CVEs CVSS >= 7.0 from the last 24 hours
+#  All CVEs CVSS > 3.0 from the last 24 hours
 #
 #  NVD API rate limits:
 #    No API key → 5 requests per 30s, frequent empty responses
@@ -124,7 +124,7 @@ def send_embed(webhook_key: str, title: str, description: str,
 #  Get a free key at: https://nvd.nist.gov/developers/request-an-api-key
 #  Add it as GitHub Secret: NVD_API_KEY
 # ════════════════════════════════════════════════════════════════════════════
-def fetch_nvd_cves(min_cvss: float = 7.0, hours: int = 24) -> list:
+def fetch_nvd_cves(min_cvss: float = 3.0, hours: int = 24) -> list:
     log.info("Fetching NVD CVEs (CVSS >= %.1f, all severities)...", min_cvss)
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url   = f"https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate={since}&resultsPerPage=50"
@@ -313,8 +313,8 @@ def fetch_cveproject_github() -> list:
                                 score = m[cvss_key].get("baseScore", 0.0)
                                 break
  
-                    # Only post if CVSS >= 7.0 (or no score — include unscored new CVEs)
-                    if score > 0 and score < 7.0:
+                    # Only post if CVSS >= 3.0 (or no score — include unscored new CVEs)
+                    if score > 0 and score < 3.0:
                         continue
  
                     score_str = f"CVSS {score}" if score > 0 else "Score pending"
