@@ -3,7 +3,24 @@
 CyberIntel Discord System is a scheduled cybersecurity intelligence system that aggregates threat data from RSS feeds, APIs, and web scraping, and distributes structured security updates into five categorized Discord channels.
 
 ---
+## 🔗 View the Intelligence Streams
 
+CyberIntel Discord System collects cybersecurity intelligence from RSS feeds, APIs, and web scraping sources, then processes and distributes structured updates into five dedicated Discord channels on a scheduled basis.
+
+**Join the Discord server to explore the intelligence streams:**
+
+**Discord Server:** [Join Now](https://discord.gg/fXgMpvcsyp) 
+
+### Available Channels
+* 📰 News
+* 🚨 CVE Updates
+* 🎯 Threat Intelligence
+* 🐞 Bug Bounty
+* 🛠️ Tools & Resources
+
+Updates are automatically collected, categorized, and published multiple times per day from trusted cybersecurity sources.
+
+---
 ## How it works
 
 The bot wakes up 5 times a day on GitHub Actions, pulls from 20+ sources across RSS feeds, public APIs, and web scraping, deduplicates everything so you never see the same article twice, and posts rich embed cards into your Discord channels. Each card shows the article title, a real summary pulled from the page, a clickable URL, and a native Discord link preview below it.
