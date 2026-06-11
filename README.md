@@ -4,9 +4,6 @@ CyberIntel Discord System is a scheduled cybersecurity intelligence system that 
 
 ---
 ## 🔗 View the Intelligence Streams
-
-CyberIntel Discord System collects cybersecurity intelligence from RSS feeds, APIs, and web scraping sources, then processes and distributes structured updates into five dedicated Discord channels on a scheduled basis.
-
 **Join the Discord server to explore the intelligence streams:**
 
 **Discord Server:** [Join Now](https://discord.gg/fXgMpvcsyp) 
